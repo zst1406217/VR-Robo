@@ -2,17 +2,26 @@
 
 # VR-Robo: A Real-to-Sim-to-Real Framework for Visual Robot Navigation and Locomotion
 
-[![Paper](https://img.shields.io/badge/arXiv-2502.01536-brightgreen)](https://arxiv.org/abs/2502.01536) [![Project WebPage](https://img.shields.io/badge/Project-webpage-%23fc4d5d)](https://vr-robo.github.io/)
+[![Paper](https://img.shields.io/badge/arXiv-2502.01536-brightgreen)](https://arxiv.org/abs/2502.01536) [![Project WebPage](https://img.shields.io/badge/Project-webpage-%23fc4d5d)](https://vr-robo.github.io/) [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 </div>
 
 > [VR-Robo: A Real-to-Sim-to-Real Framework for Visual Robot Navigation and Locomotion](https://vr-robo.github.io/) \
 > Shaoting Zhu*, Linzhan Mou*, Derun Li, Baijun Ye, Runhan Huang, Hang Zhao† \
 > RA-L 2025
-
+> 
 <div align="center">
     <img src="teaser.png" alt="VR-Robo Teaser" style="max-width: 100%;" />
 </div>
+
+## 🧷 News
+
+- **[2025-06-14]** We release the real2sim and RL policy training code.
+
+- **[2025-05-11]** Our paper is accepted by RA-L 2025. 
+
+- **[2025-02-01]** Paper released on arXiv.
+
 
 ## Installation
 We use two different environments for the Isaac Lab and the renderer. Please follow the instructions in each directory to finish the installation.
@@ -36,16 +45,10 @@ conda activate vr-robo-isaaclab
 python scripts/rsl_rl/train_gs.py --task go2_gs --headless
 ```
 
-## 🧷 News
+## Acknowledgement
+Our scene reconstruction code is based on [3DGS](https://github.com/graphdeco-inria/gaussian-splatting), [2DGS](https://github.com/hbb1/2d-gaussian-splatting) and [PGSR](https://github.com/zju3dv/PGSR). Many thanks to these excellent projects.
 
-- **[2025-06-14]** We release the training and playing code in simulation.
-
-- **[2025-05-11]** Our paper is accepted by RA-L 2025. We will release code in this repo.
-
-- **[2025-02-01]** Paper released on arXiv.
-
-
-## 📝 Citation
+## Citation
 
 You can find our paper on [arXiv](https://arxiv.org/pdf/2502.01536).
 

@@ -14,7 +14,7 @@ pip install submodules/diff-plane-rasterization
 pip install submodules/simple-knn
 ```
 
-Download our captured demo data from [Google Drive](https://drive.google.com/file/d/1qvmFvhSha5FnKgFldW8WFAEO50HhQ7GZ/view?usp=drive_link)
+Download our captured demo data from [Google Drive](https://drive.google.com/file/d/1qvmFvhSha5FnKgFldW8WFAEO50HhQ7GZ/view?usp=drive_link) by running:
 ```shell
 pip install gdown
 gdown 1qvmFvhSha5FnKgFldW8WFAEO50HhQ7GZ && unzip vr-robo-dataset.zip
@@ -33,10 +33,7 @@ vrrobo_renderer
 ```
 
 Finally, you can run the render server:
-```
-
-## Usage
-Start render server:
 ```shell
+# Start render server:
 python render_server.py
 ```

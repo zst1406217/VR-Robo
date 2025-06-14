@@ -29,14 +29,6 @@ from utils.graphics_utils import getProjectionMatrix
 import json
 
 
-def send_tensor(tensor, host="localhost", port=12345):
-    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    s.settimeout(1)
-    s.connect((host, port))
-    data = pickle.dumps(tensor.cpu().numpy())
-    s.sendall(data)
-    s.close()
-
 
 @torch.jit.script
 def rotation_matrix_from_quaternion(quaternion):
@@ -66,216 +58,6 @@ def to_so3(R: torch.Tensor) -> torch.Tensor:
         R_orth = U @ Vt
 
     return R_orth
-
-
-class GSRenderer:
-    """Convenience wrapper that loads four *Gaussian Splatting* point-clouds
-    (environment + three coloured groups) and renders RGB images from arbitrary
-    camera poses in simulation environment."""
-
-    def __init__(self, pipeline: PipelineParams, data_dir: str = "vr-robo-dataset"):
-        with torch.inference_mode():
-            self.device = "cuda"
-            self.pipeline = pipeline
-
-            self.gaussians_env = GaussianModel(sh_degree=3)
-            self.gaussians_red = GaussianModel(sh_degree=3)
-            self.gaussians_green = GaussianModel(sh_degree=3)
-            self.gaussians_blue = GaussianModel(sh_degree=3)
-
-            self.gaussians_env.load_ply(f"{data_dir}/pcd/scene/point_cloud.ply")
-            self.gaussians_red.load_ply(f"{data_dir}/pcd/red/point_cloud.ply")
-            self.gaussians_green.load_ply(f"{data_dir}/pcd/green/point_cloud.ply")
-            self.gaussians_blue.load_ply(f"{data_dir}/pcd/blue/point_cloud.ply")
-            
-            with open(f"{data_dir}/transform.json") as f:
-                params = json.load(f)
-
-            T_env = np.array(params["env"]["T"])
-            scale_env = params["env"]["scale"]
-
-            bounding_box_red = np.array(params["red"]["bounding_box"])
-            width_red = np.array(params["red"]["width"])
-            T_red = np.array(params["red"]["T"])
-            scale_red = params["red"]["scale"]
-
-            bounding_box_green = np.array(params["green"]["bounding_box"])
-            width_green = np.array(params["green"]["width"])
-            T_green = np.array(params["green"]["T"])
-            scale_green = params["green"]["scale"]
-
-            bounding_box_blue = np.array(params["blue"]["bounding_box"])
-            width_blue = np.array(params["blue"]["width"])
-            T_blue = np.array(params["blue"]["T"])
-            scale_blue = params["blue"]["scale"]
-
-            # ----- Filter + transform each coloured cloud --------------
-            self.gaussians_red = filter_gaussians_within_bounding_box(self.gaussians_red, bounding_box_red, width_red)
-            self.gaussians_green = filter_gaussians_within_bounding_box(
-                self.gaussians_green, bounding_box_green, width_green
-            )
-            self.gaussians_blue = filter_gaussians_within_bounding_box(
-                self.gaussians_blue, bounding_box_blue, width_blue
-            )
-
-            self.gaussians_env = transform_gaussians(self.gaussians_env, T_env, scale_env)
-            self.gaussians_red = transform_gaussians(self.gaussians_red, T_red, scale_red)
-            self.gaussians_green = transform_gaussians(self.gaussians_green, T_green, scale_green)
-            self.gaussians_blue = transform_gaussians(self.gaussians_blue, T_blue, scale_blue)
-
-            # Additional +90° around Z for green & blue (sim‑specific) ---------
-            T_Z_90 = np.array([[0, 1, 0, 0], [-1, 0, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]])
-            self.gaussians_green = transform_gaussians(self.gaussians_green, T_Z_90, 1.0)
-            self.gaussians_blue = transform_gaussians(self.gaussians_blue, T_Z_90, 1.0)
-
-            self.start_indices = [
-                self.gaussians_env._xyz.shape[0],
-                self.gaussians_env._xyz.shape[0] + self.gaussians_red._xyz.shape[0],
-                self.gaussians_env._xyz.shape[0]
-                + self.gaussians_red._xyz.shape[0]
-                + self.gaussians_green._xyz.shape[0],
-                self.gaussians_env._xyz.shape[0]
-                + self.gaussians_red._xyz.shape[0]
-                + self.gaussians_green._xyz.shape[0]
-                + self.gaussians_blue._xyz.shape[0],
-            ]
-
-            self.gaussians_env._xyz = torch.cat(
-                [self.gaussians_env._xyz, self.gaussians_red._xyz, self.gaussians_green._xyz, self.gaussians_blue._xyz],
-                dim=0,
-            )
-            self.gaussians_env._features_dc = torch.cat(
-                [
-                    self.gaussians_env._features_dc,
-                    self.gaussians_red._features_dc,
-                    self.gaussians_green._features_dc,
-                    self.gaussians_blue._features_dc,
-                ],
-                dim=0,
-            )
-            self.gaussians_env._features_rest = torch.cat(
-                [
-                    self.gaussians_env._features_rest,
-                    self.gaussians_red._features_rest,
-                    self.gaussians_green._features_rest,
-                    self.gaussians_blue._features_rest,
-                ],
-                dim=0,
-            )
-            self.gaussians_env._scaling = torch.cat(
-                [
-                    self.gaussians_env._scaling,
-                    self.gaussians_red._scaling,
-                    self.gaussians_green._scaling,
-                    self.gaussians_blue._scaling,
-                ],
-                dim=0,
-            )
-            self.gaussians_env._rotation = torch.cat(
-                [
-                    self.gaussians_env._rotation,
-                    self.gaussians_red._rotation,
-                    self.gaussians_green._rotation,
-                    self.gaussians_blue._rotation,
-                ],
-                dim=0,
-            )
-            self.gaussians_env._opacity = torch.cat(
-                [
-                    self.gaussians_env._opacity,
-                    self.gaussians_red._opacity,
-                    self.gaussians_green._opacity,
-                    self.gaussians_blue._opacity,
-                ],
-                dim=0,
-            )
-
-            print(self.start_indices)
-
-            # ----- Camera calibrition (adjust according to your own camera)-------------
-            self.background = torch.tensor([0, 0, 0], dtype=torch.float32, device="cuda")
-            self.width = 320
-            self.height = 180
-            self.fovx = 1.5701
-            self.fovy = 1.0260
-            self.znear = 0.01
-            self.zfar = 100.0
-
-    def render(
-        self,
-        pos: Tensor = torch.tensor([[-2.0, -0.5, 0.5]]),
-        ori: Tensor = torch.tensor([[0.5, -0.5, 0.5, -0.5]]),
-        red_pos: Tensor = torch.tensor([[-0.2, -0.2, 0.36]]),
-        green_pos: Tensor = torch.tensor([[-0.2, -0.6, 0.36]]),
-        blue_pos: Tensor = torch.tensor([[-0.2, -1.0, 0.36]]),
-    ) -> Tensor:
-        with torch.inference_mode():
-            # "ros" - forward axis: +Z - down axis +Y - right axis +X - Offset is applied in the ROS convention
-            self.pos = copy.deepcopy(pos).to(self.device)
-            self.ori = copy.deepcopy(ori).to(self.device)
-            self.red_pos = copy.deepcopy(red_pos).to(self.device)
-            self.green_pos = copy.deepcopy(green_pos).to(self.device)
-            self.blue_pos = copy.deepcopy(blue_pos).to(self.device)
-
-            num_poses = len(self.pos)
-            rotation = rotation_matrix_from_quaternion(self.ori)
-
-            T_sim = torch.zeros([num_poses, 4, 4], device=self.device)
-            T_sim[:, :3, :3] = rotation
-            T_sim[:, :3, 3] = self.pos
-            T_sim[:, 3, 3] = 1
-            T_sim = torch.inverse(T_sim)  # camera→world
-
-            self.render_images = []
-
-            # --- Iterate over views ------------------------------------
-            for i in range(num_poses):
-                world_view_transform = T_sim[i].transpose(0, 1)
-                projection_matrix = (
-                    getProjectionMatrix(znear=self.znear, zfar=self.zfar, fovX=self.fovx, fovY=self.fovy)
-                    .transpose(0, 1)
-                    .cuda()
-                )
-                full_proj_transform = (world_view_transform.unsqueeze(0).bmm(projection_matrix.unsqueeze(0))).squeeze(0)
-
-                custom_cam = MiniCam(
-                    self.width,
-                    self.height,
-                    self.fovy,
-                    self.fovx,
-                    self.znear,
-                    self.zfar,
-                    world_view_transform,
-                    full_proj_transform,
-                )
-                self.gaussians_env._xyz[self.start_indices[0] : self.start_indices[1]] += self.red_pos[i]
-                self.gaussians_env._xyz[self.start_indices[1] : self.start_indices[2]] += self.green_pos[i]
-                self.gaussians_env._xyz[self.start_indices[2] : self.start_indices[3]] += self.blue_pos[i]
-                render_pkg = render(custom_cam, self.gaussians_env, self.pipeline, self.background)
-                self.gaussians_env._xyz[self.start_indices[0] : self.start_indices[1]] -= self.red_pos[i]
-                self.gaussians_env._xyz[self.start_indices[1] : self.start_indices[2]] -= self.green_pos[i]
-                self.gaussians_env._xyz[self.start_indices[2] : self.start_indices[3]] -= self.blue_pos[i]
-                rendering = render_pkg["render"]
-                self.render_images.append(rendering)
-
-            self.render_images = torch.stack(self.render_images)
-            ndarr = self.render_images.mul(255).add_(0.5).clamp_(0, 255).to(torch.uint8)
-            ndarr = ndarr.reshape(ndarr.shape[0], -1)
-
-            try:
-                send_tensor(ndarr)  # user‑defined network helper
-                print("Successfully sent tensor", ndarr.shape)
-            except:
-                print("Failed to send tensor")
-
-
-class RenderService(rpyc.Service):
-    def __init__(self, renderer):
-        super().__init__()
-        self.renderer = renderer
-
-    def exposed_render(self, pos, ori, red_pos, green_pos, blue_pos):
-        return self.renderer.render(pos, ori, red_pos, green_pos, blue_pos)
 
 
 def transform_gaussians(gaussians, T, scale: float):
@@ -356,6 +138,176 @@ def transform_shs(shs_feat, rotation_matrix):
     shs_feat[:, 8:15] = three_degree_shs
 
     return shs_feat
+
+
+class GSRenderer:
+    """Convenience wrapper that loads four *Gaussian Splatting* point-clouds
+    (environment + three coloured groups) and renders RGB images from arbitrary
+    camera poses in simulation environment."""
+
+    def __init__(self, pipeline: PipelineParams, data_dir: str = "vr-robo-dataset"):
+        with torch.inference_mode():
+            self.device = "cuda"
+            self.pipeline = pipeline
+
+            self.gaussians_env = GaussianModel(sh_degree=3)
+            self.gaussians_red = GaussianModel(sh_degree=3)
+            self.gaussians_green = GaussianModel(sh_degree=3)
+            self.gaussians_blue = GaussianModel(sh_degree=3)
+
+            self.gaussians_env.load_ply(f"{data_dir}/pcd/scene/point_cloud.ply")
+            self.gaussians_red.load_ply(f"{data_dir}/pcd/red/point_cloud.ply")
+            self.gaussians_green.load_ply(f"{data_dir}/pcd/green/point_cloud.ply")
+            self.gaussians_blue.load_ply(f"{data_dir}/pcd/blue/point_cloud.ply")
+            
+            with open(f"{data_dir}/transform.json") as f:
+                params = json.load(f)
+
+            T_env = np.array(params["env"]["T"])
+            scale_env = params["env"]["scale"]
+
+            bounding_box_red = np.array(params["red"]["bounding_box"])
+            width_red = np.array(params["red"]["width"])
+            T_red = np.array(params["red"]["T"])
+            scale_red = params["red"]["scale"]
+
+            bounding_box_green = np.array(params["green"]["bounding_box"])
+            width_green = np.array(params["green"]["width"])
+            T_green = np.array(params["green"]["T"])
+            scale_green = params["green"]["scale"]
+
+            bounding_box_blue = np.array(params["blue"]["bounding_box"])
+            width_blue = np.array(params["blue"]["width"])
+            T_blue = np.array(params["blue"]["T"])
+            scale_blue = params["blue"]["scale"]
+
+            # ----- Filter + transform each coloured cloud --------------
+            self.gaussians_red = filter_gaussians_within_bounding_box(self.gaussians_red, bounding_box_red, width_red)
+            self.gaussians_green = filter_gaussians_within_bounding_box(
+                self.gaussians_green, bounding_box_green, width_green
+            )
+            self.gaussians_blue = filter_gaussians_within_bounding_box(
+                self.gaussians_blue, bounding_box_blue, width_blue
+            )
+
+            self.gaussians_env = transform_gaussians(self.gaussians_env, T_env, scale_env)
+            self.gaussians_red = transform_gaussians(self.gaussians_red, T_red, scale_red)
+            self.gaussians_green = transform_gaussians(self.gaussians_green, T_green, scale_green)
+            self.gaussians_blue = transform_gaussians(self.gaussians_blue, T_blue, scale_blue)
+
+            # Additional +90° around Z for green & blue (sim‑specific) ---------
+            T_Z_90 = np.array([[0, 1, 0, 0], [-1, 0, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]])
+            self.gaussians_green = transform_gaussians(self.gaussians_green, T_Z_90, 1.0)
+            self.gaussians_blue = transform_gaussians(self.gaussians_blue, T_Z_90, 1.0)
+
+            self.start_indices = [
+                self.gaussians_env._xyz.shape[0],
+                self.gaussians_env._xyz.shape[0] + self.gaussians_red._xyz.shape[0],
+                self.gaussians_env._xyz.shape[0]
+                + self.gaussians_red._xyz.shape[0]
+                + self.gaussians_green._xyz.shape[0],
+                self.gaussians_env._xyz.shape[0]
+                + self.gaussians_red._xyz.shape[0]
+                + self.gaussians_green._xyz.shape[0]
+                + self.gaussians_blue._xyz.shape[0],
+            ]
+
+            models = [self.gaussians_env, self.gaussians_red, self.gaussians_green, self.gaussians_blue]
+            fields = ["_xyz", "_features_dc", "_features_rest", "_scaling", "_rotation", "_opacity"]
+            for field in fields:
+                setattr(self.gaussians_env, field, torch.cat([getattr(m, field) for m in models], dim=0))
+
+            # ----- Camera calibrition (adjust according to your own camera)-------------
+            self.background = torch.tensor([0, 0, 0], dtype=torch.float32, device="cuda")
+            self.width, self.height = 320, 180
+            self.fovx, self.fovy   = 1.5701, 1.0260
+            self.znear, self.zfar  = 0.01, 100.0
+
+
+    def render(
+        self,
+        pos: Tensor = torch.tensor([[-2.0, -0.5, 0.5]]),
+        ori: Tensor = torch.tensor([[0.5, -0.5, 0.5, -0.5]]),
+        red_pos: Tensor = torch.tensor([[-0.2, -0.2, 0.36]]),
+        green_pos: Tensor = torch.tensor([[-0.2, -0.6, 0.36]]),
+        blue_pos: Tensor = torch.tensor([[-0.2, -1.0, 0.36]]),
+    ) -> Tensor:
+        with torch.inference_mode():
+            # "ros" - forward axis: +Z - down axis +Y - right axis +X - Offset is applied in the ROS convention
+            self.pos = copy.deepcopy(pos).to(self.device)
+            self.ori = copy.deepcopy(ori).to(self.device)
+            self.red_pos = copy.deepcopy(red_pos).to(self.device)
+            self.green_pos = copy.deepcopy(green_pos).to(self.device)
+            self.blue_pos = copy.deepcopy(blue_pos).to(self.device)
+
+            num_poses = len(self.pos)
+            rotation = rotation_matrix_from_quaternion(self.ori)
+
+            T_sim = torch.zeros([num_poses, 4, 4], device=self.device)
+            T_sim[:, :3, :3] = rotation
+            T_sim[:, :3, 3] = self.pos
+            T_sim[:, 3, 3] = 1
+            T_sim = torch.inverse(T_sim)  # camera→world
+
+            self.render_images = []
+
+            # --- Iterate over views ------------------------------------
+            for i in range(num_poses):
+                world_view_transform = T_sim[i].transpose(0, 1)
+                projection_matrix = (
+                    getProjectionMatrix(znear=self.znear, zfar=self.zfar, fovX=self.fovx, fovY=self.fovy)
+                    .transpose(0, 1)
+                    .cuda()
+                )
+                full_proj_transform = (world_view_transform.unsqueeze(0).bmm(projection_matrix.unsqueeze(0))).squeeze(0)
+
+                custom_cam = MiniCam(
+                    self.width,
+                    self.height,
+                    self.fovy,
+                    self.fovx,
+                    self.znear,
+                    self.zfar,
+                    world_view_transform,
+                    full_proj_transform,
+                )
+                self.gaussians_env._xyz[self.start_indices[0] : self.start_indices[1]] += self.red_pos[i]
+                self.gaussians_env._xyz[self.start_indices[1] : self.start_indices[2]] += self.green_pos[i]
+                self.gaussians_env._xyz[self.start_indices[2] : self.start_indices[3]] += self.blue_pos[i]
+                render_pkg = render(custom_cam, self.gaussians_env, self.pipeline, self.background)
+                self.gaussians_env._xyz[self.start_indices[0] : self.start_indices[1]] -= self.red_pos[i]
+                self.gaussians_env._xyz[self.start_indices[1] : self.start_indices[2]] -= self.green_pos[i]
+                self.gaussians_env._xyz[self.start_indices[2] : self.start_indices[3]] -= self.blue_pos[i]
+                rendering = render_pkg["render"]
+                self.render_images.append(rendering)
+
+            self.render_images = torch.stack(self.render_images)
+            ndarr = self.render_images.mul(255).add_(0.5).clamp_(0, 255).to(torch.uint8)
+            ndarr = ndarr.reshape(ndarr.shape[0], -1)
+
+            try:
+                send_tensor(ndarr)  # user‑defined network helper
+                print("Successfully sent tensor", ndarr.shape)
+            except:
+                print("Failed to send tensor")
+
+
+def send_tensor(tensor, host="localhost", port=12345):
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.settimeout(1)
+    s.connect((host, port))
+    data = pickle.dumps(tensor.cpu().numpy())
+    s.sendall(data)
+    s.close()
+
+
+class RenderService(rpyc.Service):
+    def __init__(self, renderer):
+        super().__init__()
+        self.renderer = renderer
+
+    def exposed_render(self, pos, ori, red_pos, green_pos, blue_pos):
+        return self.renderer.render(pos, ori, red_pos, green_pos, blue_pos)
 
 
 def filter_gaussians_within_bounding_box(gaussians, bounding_box, width):
