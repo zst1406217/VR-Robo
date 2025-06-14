@@ -32,6 +32,8 @@ vrrobo_renderer
 │   └── transform.json
 ```
 
+You can reconstruct your own scene and get the pose transformation following our main paper.
+
 Finally, you can run the render server:
 ```shell
 # Start render server:

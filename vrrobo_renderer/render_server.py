@@ -200,22 +200,13 @@ class GSRenderer:
             self.gaussians_green = transform_gaussians(self.gaussians_green, T_Z_90, 1.0)
             self.gaussians_blue = transform_gaussians(self.gaussians_blue, T_Z_90, 1.0)
 
-            self.start_indices = [
-                self.gaussians_env._xyz.shape[0],
-                self.gaussians_env._xyz.shape[0] + self.gaussians_red._xyz.shape[0],
-                self.gaussians_env._xyz.shape[0]
-                + self.gaussians_red._xyz.shape[0]
-                + self.gaussians_green._xyz.shape[0],
-                self.gaussians_env._xyz.shape[0]
-                + self.gaussians_red._xyz.shape[0]
-                + self.gaussians_green._xyz.shape[0]
-                + self.gaussians_blue._xyz.shape[0],
-            ]
-
             models = [self.gaussians_env, self.gaussians_red, self.gaussians_green, self.gaussians_blue]
             fields = ["_xyz", "_features_dc", "_features_rest", "_scaling", "_rotation", "_opacity"]
             for field in fields:
                 setattr(self.gaussians_env, field, torch.cat([getattr(m, field) for m in models], dim=0))
+
+            counts = [m._xyz.shape[0] for m in models]
+            self.start_indices = np.cumsum([0] + counts).tolist()[1:]
 
             # ----- Camera calibrition (adjust according to your own camera)-------------
             self.background = torch.tensor([0, 0, 0], dtype=torch.float32, device="cuda")

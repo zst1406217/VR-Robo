@@ -8,7 +8,7 @@
 
 > [VR-Robo: A Real-to-Sim-to-Real Framework for Visual Robot Navigation and Locomotion](https://vr-robo.github.io/) \
 > Shaoting Zhu*, Linzhan Mou*, Derun Li, Baijun Ye, Runhan Huang, Hang Zhao† \
-> RA-L 2025
+> RA-L 2025 
 > 
 <div align="center">
     <img src="teaser.png" alt="VR-Robo Teaser" style="max-width: 100%;" />
@@ -44,6 +44,8 @@ If you want to train the model, you can run:
 conda activate vr-robo-isaaclab
 python scripts/rsl_rl/train_gs.py --task go2_gs --headless
 ```
+
+If you have any question, please feel free to open an issue or e-mail at zhust24@mails.tsinghua.edu.cn or moulz@zju.edu.cn.
 
 ## Acknowledgement
 Our scene reconstruction code is based on [3DGS](https://github.com/graphdeco-inria/gaussian-splatting), [2DGS](https://github.com/hbb1/2d-gaussian-splatting) and [PGSR](https://github.com/zju3dv/PGSR). Many thanks to these excellent projects.
