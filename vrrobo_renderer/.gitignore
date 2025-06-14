@@ -1,0 +1,7 @@
+data/*
+results/*
+dtu/*
+.DS_Store
+output_dtu/
+*/__pycache__/*
+output/*
