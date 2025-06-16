@@ -32,10 +32,12 @@ vrrobo_renderer
 │   └── transform.json
 ```
 
-You can reconstruct your own scene and get the pose transformation following our main paper.
+You can reconstruct your own scene and get the pose transformation following our main paper. 
 
 Finally, you can run the render server:
 ```shell
 # Start render server:
 python render_server.py
 ```
+
+Feel free to contact us if you have any questions regarding the real2sim transfer.
