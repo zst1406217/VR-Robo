@@ -201,11 +201,11 @@ class GSRenderer:
             self.gaussians_blue = transform_gaussians(self.gaussians_blue, T_Z_90, 1.0)
 
             models = [self.gaussians_env, self.gaussians_red, self.gaussians_green, self.gaussians_blue]
+            counts = [m._xyz.shape[0] for m in models]
             fields = ["_xyz", "_features_dc", "_features_rest", "_scaling", "_rotation", "_opacity"]
             for field in fields:
                 setattr(self.gaussians_env, field, torch.cat([getattr(m, field) for m in models], dim=0))
 
-            counts = [m._xyz.shape[0] for m in models]
             self.start_indices = np.cumsum([0] + counts).tolist()[1:]
 
             # ----- Camera calibrition (adjust according to your own camera)-------------
